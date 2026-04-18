@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 
-const TaskModal = ({ task, onClose, onSave, isDarkMode }) => {
+const TaskModal = ({ task, onClose, onSave, isDarkMode, allUsers = [] }) => {
   const [formData, setFormData] = useState({
     title: '',
     description: '',
@@ -9,7 +9,7 @@ const TaskModal = ({ task, onClose, onSave, isDarkMode }) => {
     status: 'not-completed',
     completionPercentage: 0,
     notes: '',
-    assignedTo: [],
+    assignedUsers: [],
     dueDate: '',
     startDate: '',
     endDate: '',
@@ -20,7 +20,10 @@ const TaskModal = ({ task, onClose, onSave, isDarkMode }) => {
 
   useEffect(() => {
     if (task) {
-      setFormData(task);
+      setFormData({
+        ...task,
+        assignedUsers: task.assignedUsers || []
+      });
     }
   }, [task]);
 
@@ -29,6 +32,15 @@ const TaskModal = ({ task, onClose, onSave, isDarkMode }) => {
     setFormData(prev => ({
       ...prev,
       [name]: name === 'completionPercentage' ? parseInt(value) : value
+    }));
+  };
+
+  const handleUserToggle = (userId) => {
+    setFormData(prev => ({
+      ...prev,
+      assignedUsers: prev.assignedUsers.includes(userId)
+        ? prev.assignedUsers.filter(id => id !== userId)
+        : [...prev.assignedUsers, userId]
     }));
   };
 
@@ -223,6 +235,39 @@ const TaskModal = ({ task, onClose, onSave, isDarkMode }) => {
               </small>
             )}
           </div>
+
+          {allUsers.length > 0 && (
+            <div className="form-group">
+              <label>👥 Assign Users (Multiple users can track their own completion)</label>
+              <div style={{ 
+                display: 'grid', 
+                gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', 
+                gap: '0.5rem',
+                marginTop: '0.5rem',
+                padding: '1rem',
+                backgroundColor: 'var(--input-bg)',
+                borderRadius: '4px',
+                border: '1px solid var(--border-color)'
+              }}>
+                {allUsers.map(user => (
+                  <label key={user.id} style={{ display: 'flex', alignItems: 'center', cursor: 'pointer' }}>
+                    <input
+                      type="checkbox"
+                      checked={formData.assignedUsers.includes(user.id)}
+                      onChange={() => handleUserToggle(user.id)}
+                      style={{ marginRight: '0.5rem', cursor: 'pointer' }}
+                    />
+                    <span>{user.email?.split('@')[0] || user.email}</span>
+                  </label>
+                ))}
+              </div>
+              {formData.assignedUsers.length > 0 && (
+                <small style={{ display: 'block', marginTop: '0.5rem', opacity: 0.7 }}>
+                  ✓ {formData.assignedUsers.length} user(s) assigned. Each can track their own completion status.
+                </small>
+              )}
+            </div>
+          )}
 
           <div className="button-group">
             <button type="submit" className="btn btn-primary">

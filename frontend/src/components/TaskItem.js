@@ -1,6 +1,10 @@
-import React from 'react';
+import React, { useState } from 'react';
+import { doc, updateDoc } from 'firebase/firestore';
+import { db } from '../firebase';
 
-const TaskItem = ({ task, onEdit, onDelete, isDarkMode }) => {
+const TaskItem = ({ task, onEdit, onDelete, isDarkMode, currentUser, onUpdateUserStatus }) => {
+  const [updatingStatus, setUpdatingStatus] = useState(false);
+
   const getStatusColor = (status) => {
     switch (status) {
       case 'completed':
@@ -42,8 +46,36 @@ const TaskItem = ({ task, onEdit, onDelete, isDarkMode }) => {
     }
   };
 
+  // Handle per-user completion status update
+  const handleUserStatusUpdate = async (userId, newStatus) => {
+    if (!currentUser || updatingStatus) return;
+    
+    // Only allow user to update their own status
+    if (userId !== currentUser.id && currentUser.id !== task.createdBy) return;
+
+    setUpdatingStatus(true);
+    try {
+      const userCompletionStatus = task.userCompletionStatus || {};
+      userCompletionStatus[userId] = newStatus;
+      
+      await updateDoc(doc(db, 'tasks', task.id), {
+        userCompletionStatus
+      });
+      
+      if (onUpdateUserStatus) {
+        onUpdateUserStatus();
+      }
+    } catch (err) {
+      console.error('Failed to update user status:', err);
+    } finally {
+      setUpdatingStatus(false);
+    }
+  };
+
   const isSharedTask = task.visibility === 'shared';
   const isRecurringTask = task.recurrence && task.recurrence !== 'none';
+  const isAssignedUser = task.assignedUsers && task.assignedUsers.includes(currentUser?.id);
+  const userStatus = task.userCompletionStatus && task.userCompletionStatus[currentUser?.id];
 
   return (
     <li className={`task-item ${task.status}`}>
@@ -87,9 +119,68 @@ const TaskItem = ({ task, onEdit, onDelete, isDarkMode }) => {
         </div>
       )}
 
-      {task.assignedTo && task.assignedTo.length > 0 && (
-        <div className="task-assigned">
-          <strong>Assigned to:</strong> {task.assignedTo.map(u => u.name || u).join(', ')}
+      {/* Assigned Users Section */}
+      {task.assignedUsers && task.assignedUsers.length > 0 && (
+        <div className="task-meta" style={{ marginTop: '0.5rem', padding: '0.5rem', backgroundColor: 'var(--input-bg)', borderRadius: '4px' }}>
+          <strong>👥 Assigned Users:</strong>
+          <div style={{ marginTop: '0.5rem', display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
+            {task.assignedUsers.map(userId => {
+              const userStatus = (task.userCompletionStatus && task.userCompletionStatus[userId]) || 'not-started';
+              const isCurrentUser = currentUser && userId === currentUser.id;
+              const statusEmoji = userStatus === 'completed' ? '✅' : userStatus === 'not-completed' ? '❌' : '⏳';
+              
+              return (
+                <div key={userId} style={{
+                  padding: '0.5rem',
+                  backgroundColor: 'var(--card-bg)',
+                  borderRadius: '4px',
+                  border: isCurrentUser ? '2px solid var(--accent-color)' : '1px solid var(--border-color)',
+                  fontSize: '0.85rem'
+                }}>
+                  <div>{statusEmoji} User {userId.substring(0, 6)}</div>
+                  {isCurrentUser && (
+                    <div style={{ display: 'flex', gap: '0.25rem', marginTop: '0.25rem' }}>
+                      <button
+                        onClick={() => handleUserStatusUpdate(userId, 'not-completed')}
+                        disabled={updatingStatus}
+                        style={{
+                          padding: '0.25rem 0.5rem',
+                          fontSize: '0.75rem',
+                          backgroundColor: userStatus === 'not-completed' ? 'var(--accent-color)' : 'var(--input-bg)',
+                          border: 'none',
+                          borderRadius: '3px',
+                          cursor: updatingStatus ? 'not-allowed' : 'pointer',
+                          color: 'var(--text-color)'
+                        }}
+                      >
+                        ❌
+                      </button>
+                      <button
+                        onClick={() => handleUserStatusUpdate(userId, 'completed')}
+                        disabled={updatingStatus}
+                        style={{
+                          padding: '0.25rem 0.5rem',
+                          fontSize: '0.75rem',
+                          backgroundColor: userStatus === 'completed' ? 'var(--accent-color)' : 'var(--input-bg)',
+                          border: 'none',
+                          borderRadius: '3px',
+                          cursor: updatingStatus ? 'not-allowed' : 'pointer',
+                          color: 'var(--text-color)'
+                        }}
+                      >
+                        ✅
+                      </button>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+          {isAssignedUser && (
+            <div style={{ marginTop: '0.5rem', fontSize: '0.85rem', opacity: 0.8 }}>
+              💡 You are assigned. Click the buttons above to mark your completion status.
+            </div>
+          )}
         </div>
       )}
 

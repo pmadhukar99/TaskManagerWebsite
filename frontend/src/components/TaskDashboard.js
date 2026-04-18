@@ -32,6 +32,9 @@ const TaskDashboard = ({ isDarkMode, currentUser }) => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
+  const [filterTaskName, setFilterTaskName] = useState('');
+  const [filterUser, setFilterUser] = useState('');
+  const [saveInProgress, setSaveInProgress] = useState(false);
 
   // Memoize fetchTasks to avoid dependency issues
   const fetchTasks = React.useCallback(async () => {
@@ -295,7 +298,20 @@ const TaskDashboard = ({ isDarkMode, currentUser }) => {
     }
   };
 
+  // Filter tasks based on search criteria
+  const filterTasks = (tasksList) => {
+    return tasksList.filter(task => {
+      const matchesName = !filterTaskName || task.title.toLowerCase().includes(filterTaskName);
+      const matchesUser = !filterUser || (task.assignedUsers && task.assignedUsers.includes(filterUser));
+      return matchesName && matchesUser;
+    });
+  };
+
   const handleSaveTask = async (taskData) => {
+    // Prevent duplicate saves (React.StrictMode fix)
+    if (saveInProgress) return;
+    setSaveInProgress(true);
+
     try {
       if (editingTask?.id) {
         // Update
@@ -314,20 +330,25 @@ const TaskDashboard = ({ isDarkMode, currentUser }) => {
         
         setSuccessMessage('Task updated');
       } else {
-        // Create
+        // Create - only create once
         await addDoc(collection(db, 'tasks'), {
           ...taskData,
           createdBy: currentUser.id,
+          assignedUsers: taskData.assignedUsers || [],
+          userCompletionStatus: {},
           createdAt: new Date(),
           updatedAt: new Date()
         });
         setSuccessMessage('Task created');
       }
-      fetchTasks();
+      await new Promise(resolve => setTimeout(resolve, 500)); // Small delay to prevent double calls
+      await fetchTasks();
       setShowModal(false);
       setTimeout(() => setSuccessMessage(''), 3000);
     } catch (err) {
       setError('Failed to save: ' + err.message);
+    } finally {
+      setSaveInProgress(false);
     }
   };
 
@@ -390,51 +411,101 @@ const TaskDashboard = ({ isDarkMode, currentUser }) => {
         </button>
       </div>
 
+      {/* Filters Section */}
+      <div className="card" style={{ marginBottom: '2rem', backgroundColor: 'var(--card-bg)' }}>
+        <h3 style={{ marginBottom: '1rem' }}>🔍 Filters</h3>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem' }}>
+          <div className="form-group">
+            <label htmlFor="filterTaskName">Filter by Task Name:</label>
+            <input
+              type="text"
+              id="filterTaskName"
+              placeholder="Search task..."
+              value={filterTaskName}
+              onChange={(e) => setFilterTaskName(e.target.value.toLowerCase())}
+              style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', border: '1px solid var(--border-color)', backgroundColor: 'var(--input-bg)', color: 'var(--text-color)' }}
+            />
+          </div>
+          <div className="form-group">
+            <label htmlFor="filterUser">Filter by Assigned User:</label>
+            <select
+              id="filterUser"
+              value={filterUser}
+              onChange={(e) => setFilterUser(e.target.value)}
+              style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', border: '1px solid var(--border-color)', backgroundColor: 'var(--input-bg)', color: 'var(--text-color)' }}
+            >
+              <option value="">All Users</option>
+              {allUsers.map(user => (
+                <option key={user.id} value={user.id}>{user.email?.split('@')[0]}</option>
+              ))}
+            </select>
+          </div>
+          {(filterTaskName || filterUser) && (
+            <div style={{ display: 'flex', alignItems: 'flex-end' }}>
+              <button 
+                className="btn" 
+                onClick={() => { setFilterTaskName(''); setFilterUser(''); }}
+                style={{ width: '100%' }}
+              >
+                Clear Filters
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+
       {/* Task Sections */}
       <div className="task-sections">
-        {['daily', 'weekly', 'monthly', 'quarterly', 'half-yearly', 'yearly', 'normal'].map(category => (
-          <div key={category} className="card task-section">
-            <div className={`task-section-header ${category}`}>
-              {category === 'half-yearly' ? '🗓️ HALF-YEARLY' : 
-               category === 'quarterly' ? '📈 QUARTERLY' :
-               category === 'normal' ? '✅ NORMAL TASKS' :
-               category.toUpperCase()} TASKS ({tasks[category].length})
+        {['daily', 'weekly', 'monthly', 'quarterly', 'half-yearly', 'yearly', 'normal'].map(category => {
+          const filteredTasks = filterTasks(tasks[category]);
+          return (
+            <div key={category} className="card task-section">
+              <div className={`task-section-header ${category}`}>
+                {category === 'half-yearly' ? '🗓️ HALF-YEARLY' : 
+                 category === 'quarterly' ? '📈 QUARTERLY' :
+                 category === 'normal' ? '✅ NORMAL TASKS' :
+                 category.toUpperCase()} TASKS ({filteredTasks.length})
+              </div>
+              <ul className="task-list">
+                {filteredTasks.length === 0 ? (
+                  <li style={{ padding: '1rem', textAlign: 'center', opacity: 0.6 }}>
+                    No {category} tasks
+                  </li>
+                ) : (
+                  filteredTasks.map(task => (
+                    <TaskItem
+                      key={task.id}
+                      task={task}
+                      onEdit={handleEditTask}
+                      onDelete={handleDeleteTask}
+                      isDarkMode={isDarkMode}
+                      currentUser={currentUser}
+                      onUpdateUserStatus={fetchTasks}
+                    />
+                  ))
+                )}
+              </ul>
             </div>
-            <ul className="task-list">
-              {tasks[category].length === 0 ? (
-                <li style={{ padding: '1rem', textAlign: 'center', opacity: 0.6 }}>
-                  No {category} tasks
-                </li>
-              ) : (
-                tasks[category].map(task => (
-                  <TaskItem
-                    key={task.id}
-                    task={task}
-                    onEdit={handleEditTask}
-                    onDelete={handleDeleteTask}
-                    isDarkMode={isDarkMode}
-                  />
-                ))
-              )}
-            </ul>
-          </div>
-        ))}
+          );
+        })}
       </div>
 
       {/* History Section */}
       {tasks.history && tasks.history.length > 0 && (
         <div className="card task-section">
           <div className="task-section-header history">
-            📜 HISTORY - COMPLETED TASKS ({tasks.history.length})
+            📜 HISTORY - COMPLETED TASKS ({filterTasks(tasks.history).length})
           </div>
           <ul className="task-list">
-            {tasks.history.map(task => (
+            {filterTasks(tasks.history).map(task => (
               <TaskItem
                 key={task.id}
                 task={task}
                 onEdit={handleEditTask}
                 onDelete={handleDeleteTask}
                 isDarkMode={isDarkMode}
+                currentUser={currentUser}
+                onUpdateUserStatus={fetchTasks}
               />
             ))}
           </ul>
@@ -448,6 +519,7 @@ const TaskDashboard = ({ isDarkMode, currentUser }) => {
           onClose={() => setShowModal(false)}
           onSave={handleSaveTask}
           isDarkMode={isDarkMode}
+          allUsers={allUsers}
         />
       )}
     </div>
